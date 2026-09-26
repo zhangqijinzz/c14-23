@@ -1,13 +1,15 @@
 import { readIndexedWorkspace, readLocalWorkspace, writeIndexedWorkspace, writeLocalWorkspace } from './storage';
-import type { PersistedWorkspace } from './types';
+import type { PersistedWorkspace, PersistedWorkspaceV1 } from './types';
+
+export type StoredWorkspace = PersistedWorkspace | PersistedWorkspaceV1;
 
 export interface ScenarioRepository {
-  load(): Promise<PersistedWorkspace | null>;
+  load(): Promise<StoredWorkspace | null>;
   save(workspace: PersistedWorkspace): Promise<void>;
 }
 
 export class LocalScenarioRepository implements ScenarioRepository {
-  async load(): Promise<PersistedWorkspace | null> {
+  async load(): Promise<StoredWorkspace | null> {
     return (await readIndexedWorkspace()) ?? (await readLocalWorkspace());
   }
 

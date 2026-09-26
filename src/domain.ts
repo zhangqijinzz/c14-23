@@ -1,4 +1,5 @@
 import type {
+  BaselineSetting,
   FinanceScenario,
   ProjectionPoint,
   ScenarioField,
@@ -50,3 +51,65 @@ export function formatMoney(value: number): string {
 export function fieldLabel(field: ScenarioField): string {
   return { principal: '初始金额', recurring: '每月投入', years: '投资年限', annualRate: '年化收益', inflationRate: '通胀率', feeRate: '费用率' }[field];
 }
+
+/**
+ * 默认比较基准年：所有参与比较的情景里最短的年限。
+ * 用各自推演得出的年限而非情景输入，确保参数非法时不会误取年限。
+ */
+export function shortestProjectionYear(projections: ScenarioProjection[]): number | null {
+  const years = projections.map((projection) => projection.points[projection.points.length - 1]?.year).filter((year): year is number => typeof year === 'number');
+  return years.length ? Math.min(...years) : null;
+}
+
+export function longestProjectionYear(projections: ScenarioProjection[]): number | null {
+  const years = projections.map((projection) => projection.points[projection.points.length - 1]?.year).filter((year): year is number => typeof year === 'number');
+  return years.length ? Math.max(...years) : null;
+}
+
+/** 基准年输入的合法范围与情景年限一致（1–60 的整数）。 */
+export function validateBaselineYear(year: number, maxAllowed: number): string | null {
+  if (!Number.isInteger(year)) return '基准年需为整数年';
+  if (year < 1 || year > 60) return '基准年需为 1–60 年的整数';
+  if (maxAllowed >= 1 && year > maxAllowed) return `基准年不能超过最长情景的 ${maxAllowed} 年，否则没有可比对象`;
+  return null;
+}
+
+/**
+ * 计算实际生效的基准年：手动值合法时用手动值，否则回退到最短年限。
+ * 回退时同时给出错误提示，供控件标红，保证汇总始终基于一个可解释的年份。
+ */
+export function resolveBaselineYear(
+  setting: BaselineSetting | null,
+  projections: ScenarioProjection[],
+): { year: number | null; source: 'manual' | 'shortest'; error: string | null } {
+  if (!setting || !setting.enabled) return { year: null, source: 'shortest', error: null };
+  const shortest = shortestProjectionYear(projections);
+  if (shortest === null) return { year: null, source: 'shortest', error: null };
+  const longest = longestProjectionYear(projections) ?? shortest;
+  const manual = setting.manualYear;
+  if (typeof manual === 'number' && Number.isFinite(manual)) {
+    const error = validateBaselineYear(manual, longest);
+    if (!error) return { year: manual, source: 'manual', error: null };
+    return { year: shortest, source: 'shortest', error };
+  }
+  return { year: shortest, source: 'shortest', error: null };
+}
+
+export interface BaselineRow {
+  scenarioId: string;
+  /** 基准年时点：落在该情景自身年限内时可取，否则为 null（未推演到基准年，不参与比较）。 */
+  covered: boolean;
+  baselinePoint: ProjectionPoint | null;
+  /** 超过基准年、延伸到该情景自身终值的外推点（不含基准年点）。 */
+  extrapolationPoints: ProjectionPoint[];
+}
+
+/** 按统一基准年切分每个情景的可比部分与外推部分。 */
+export function buildBaselineRows(projections: ScenarioProjection[], baselineYear: number): BaselineRow[] {
+  return projections.map((projection) => {
+    const baselinePoint = projection.points.find((point) => point.year === baselineYear) ?? null;
+    const extrapolationPoints = projection.points.filter((point) => point.year > baselineYear);
+    return { scenarioId: projection.scenarioId, covered: baselinePoint !== null, baselinePoint, extrapolationPoints };
+  });
+}
+

@@ -1,14 +1,18 @@
 import './styles.css';
+import { BaselineControl } from './components/BaselineControl';
 import { ComparisonChart } from './components/ComparisonChart';
 import { ScenarioForm } from './components/ScenarioForm';
 import { ScenarioTable } from './components/ScenarioTable';
-import { formatMoney } from './domain';
+import { formatMoney, longestProjectionYear, shortestProjectionYear } from './domain';
 import { useMoneyScenario } from './useMoneyScenario';
 
 export default function App() {
   const viewModel = useMoneyScenario();
   const state = viewModel.getSnapshot();
-  const totalValue = Math.max(...state.projections.map((projection) => projection.finalValue), 0);
+  const baselineActive = state.baselineYear !== null;
+  const comparableMax = baselineActive
+    ? Math.max(...state.baselineRows.filter((row) => row.covered).map((row) => row.baselinePoint?.nominal ?? 0), 0)
+    : Math.max(...state.projections.map((projection) => projection.finalValue), 0);
 
   if (state.status === 'loading') return <div className="loading-screen"><div className="brand-mark">M</div><p>正在准备你的情景工作台…</p></div>;
 
@@ -32,8 +36,18 @@ export default function App() {
             {state.scenarios.map((scenario) => <ScenarioForm key={scenario.id} scenario={scenario} errors={state.errors[scenario.id] ?? {}} onUpdate={(field, value) => viewModel.updateField(scenario.id, field, value)} onRename={(name) => viewModel.renameScenario(scenario.id, name)} onDuplicate={() => viewModel.duplicateScenario(scenario.id)} onRemove={() => viewModel.removeScenario(scenario.id)} />)}
           </div>
 
-          <div className="results-heading"><div><span className="eyebrow">02 · OUTCOME</span><h2>长期结果对比</h2></div><div className="result-highlight"><span>最高名义终值</span><strong>¥ {formatMoney(totalValue)}</strong></div></div>
-          {state.projections.length > 0 ? <><ComparisonChart scenarios={state.scenarios} projections={state.projections} /><ScenarioTable scenarios={state.scenarios} projections={state.projections} /></> : <div className="empty-result"><span>⌁</span><strong>修正参数后即可生成对比</strong><p>请检查标红字段，年限最多支持 60 年。</p></div>}
+          <div className="results-heading"><div><span className="eyebrow">02 · OUTCOME</span><h2>长期结果对比</h2></div><div className="result-highlight"><span>{baselineActive ? `最高名义值 · 第 ${state.baselineYear} 年（基准口径）` : '最高名义终值'}</span><strong>¥ {formatMoney(comparableMax)}</strong></div></div>
+          <BaselineControl
+            setting={state.baseline}
+            baselineYear={state.baselineYear}
+            error={state.baselineError}
+            shortestYear={shortestProjectionYear(state.projections)}
+            longestYear={longestProjectionYear(state.projections)}
+            onToggleEnabled={(enabled) => viewModel.setBaselineEnabled(enabled)}
+            onYearChange={(year) => viewModel.setBaselineYear(year)}
+            onReset={() => viewModel.resetBaselineYear()}
+          />
+          {state.projections.length > 0 ? <><ComparisonChart scenarios={state.scenarios} projections={state.projections} baselineYear={state.baselineYear} /><ScenarioTable scenarios={state.scenarios} projections={state.projections} baselineYear={state.baselineYear} rows={state.baselineRows} /></> : <div className="empty-result"><span>⌁</span><strong>修正参数后即可生成对比</strong><p>请检查标红字段，年限最多支持 60 年。</p></div>}
           <footer><span>ⓘ 结果为基于输入假设的数学模拟，不代表未来实际表现，也不构成任何投资建议。</span><span>本地优先 · 保存后可恢复</span></footer>
         </section>
       </div>

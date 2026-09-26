@@ -1,15 +1,31 @@
-import type { PersistedWorkspace } from './types';
+import type { PersistedWorkspace, PersistedWorkspaceV1 } from './types';
 
 const STORAGE_KEY = 'money-scenario.workspace.v1';
 const DB_NAME = 'money-scenario-db';
 
-function validWorkspace(value: unknown): value is PersistedWorkspace {
+type StoredWorkspace = PersistedWorkspace | PersistedWorkspaceV1;
+
+function validV1(value: unknown): value is PersistedWorkspaceV1 {
   if (!value || typeof value !== 'object') return false;
-  const candidate = value as Partial<PersistedWorkspace>;
+  const candidate = value as Partial<PersistedWorkspaceV1>;
   return candidate.version === 1 && Array.isArray(candidate.scenarios) && typeof candidate.selectedId === 'string';
 }
 
-export async function readLocalWorkspace(): Promise<PersistedWorkspace | null> {
+function validV2(value: unknown): value is PersistedWorkspace {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Partial<PersistedWorkspace>;
+  if (candidate.version !== 2 || !Array.isArray(candidate.scenarios) || typeof candidate.selectedId !== 'string') return false;
+  const baseline = candidate.baseline;
+  if (!baseline || typeof baseline !== 'object' || typeof baseline.enabled !== 'boolean') return false;
+  if (baseline.manualYear !== undefined && (typeof baseline.manualYear !== 'number' || !Number.isFinite(baseline.manualYear))) return false;
+  return true;
+}
+
+function validWorkspace(value: unknown): value is StoredWorkspace {
+  return validV1(value) || validV2(value);
+}
+
+export async function readLocalWorkspace(): Promise<StoredWorkspace | null> {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
@@ -24,7 +40,7 @@ export async function writeLocalWorkspace(workspace: PersistedWorkspace): Promis
   localStorage.setItem(STORAGE_KEY, JSON.stringify(workspace));
 }
 
-export async function readIndexedWorkspace(): Promise<PersistedWorkspace | null> {
+export async function readIndexedWorkspace(): Promise<StoredWorkspace | null> {
   if (typeof indexedDB === 'undefined') return null;
   return new Promise((resolve) => {
     try {
