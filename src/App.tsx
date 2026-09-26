@@ -2,13 +2,26 @@ import './styles.css';
 import { ComparisonChart } from './components/ComparisonChart';
 import { ScenarioForm } from './components/ScenarioForm';
 import { ScenarioTable } from './components/ScenarioTable';
-import { formatMoney } from './domain';
+import { formatMoney, pointAtYear, resolveBaselineYear } from './domain';
 import { useMoneyScenario } from './useMoneyScenario';
 
 export default function App() {
   const viewModel = useMoneyScenario();
   const state = viewModel.getSnapshot();
-  const totalValue = Math.max(...state.projections.map((projection) => projection.finalValue), 0);
+  const baselineYear = resolveBaselineYear(state.baseline, state.scenarios, state.errors);
+  const autoYear = resolveBaselineYear({ mode: 'auto' }, state.scenarios, state.errors);
+  const validYears = state.scenarios.filter((scenario) => !state.errors[scenario.id]).map((scenario) => scenario.years);
+  const maxOptionYear = Math.max(...validYears, state.baseline.mode === 'manual' ? state.baseline.year : 1, 1);
+  const comparableValues = state.projections
+    .map((projection) => baselineYear == null ? projection.finalValue : pointAtYear(projection, baselineYear)?.nominal)
+    .filter((value): value is number => value !== undefined);
+  const totalValue = Math.max(...comparableValues, 0);
+  const baselineValue = state.baseline.mode === 'manual' ? String(state.baseline.year) : state.baseline.mode;
+  const onBaselineChange = (value: string) => {
+    if (value === 'auto') viewModel.setBaseline({ mode: 'auto' });
+    else if (value === 'off') viewModel.setBaseline({ mode: 'off' });
+    else viewModel.setBaseline({ mode: 'manual', year: Number(value) });
+  };
 
   if (state.status === 'loading') return <div className="loading-screen"><div className="brand-mark">M</div><p>正在准备你的情景工作台…</p></div>;
 
@@ -32,8 +45,8 @@ export default function App() {
             {state.scenarios.map((scenario) => <ScenarioForm key={scenario.id} scenario={scenario} errors={state.errors[scenario.id] ?? {}} onUpdate={(field, value) => viewModel.updateField(scenario.id, field, value)} onRename={(name) => viewModel.renameScenario(scenario.id, name)} onDuplicate={() => viewModel.duplicateScenario(scenario.id)} onRemove={() => viewModel.removeScenario(scenario.id)} />)}
           </div>
 
-          <div className="results-heading"><div><span className="eyebrow">02 · OUTCOME</span><h2>长期结果对比</h2></div><div className="result-highlight"><span>最高名义终值</span><strong>¥ {formatMoney(totalValue)}</strong></div></div>
-          {state.projections.length > 0 ? <><ComparisonChart scenarios={state.scenarios} projections={state.projections} /><ScenarioTable scenarios={state.scenarios} projections={state.projections} /></> : <div className="empty-result"><span>⌁</span><strong>修正参数后即可生成对比</strong><p>请检查标红字段，年限最多支持 60 年。</p></div>}
+          <div className="results-heading"><div><span className="eyebrow">02 · OUTCOME</span><h2>长期结果对比</h2></div><div className="results-tools"><label className="baseline-control">比较基准年<select aria-label="比较基准年" value={baselineValue} onChange={(event) => onBaselineChange(event.target.value)}><option value="auto">自动 · 第 {autoYear ?? '—'} 年（最短情景）</option>{Array.from({ length: maxOptionYear }, (_, index) => index + 1).map((year) => <option key={year} value={year}>第 {year} 年</option>)}<option value="off">不统一 · 各按终值</option></select></label><div className="result-highlight"><span>{baselineYear == null ? '最高名义终值' : `第 ${baselineYear} 年 · 可比最高名义价值`}</span><strong>¥ {formatMoney(totalValue)}</strong></div></div></div>
+          {state.projections.length > 0 ? <><ComparisonChart scenarios={state.scenarios} projections={state.projections} baselineYear={baselineYear} /><ScenarioTable scenarios={state.scenarios} projections={state.projections} baselineYear={baselineYear} /></> : <div className="empty-result"><span>⌁</span><strong>修正参数后即可生成对比</strong><p>请检查标红字段，年限最多支持 60 年。</p></div>}
           <footer><span>ⓘ 结果为基于输入假设的数学模拟，不代表未来实际表现，也不构成任何投资建议。</span><span>本地优先 · 保存后可恢复</span></footer>
         </section>
       </div>

@@ -1,9 +1,9 @@
 import { formatMoney } from '../domain';
 import type { FinanceScenario, ScenarioProjection } from '../types';
 
-interface Props { scenarios: FinanceScenario[]; projections: ScenarioProjection[] }
+interface Props { scenarios: FinanceScenario[]; projections: ScenarioProjection[]; baselineYear: number | null }
 
-export function ComparisonChart({ scenarios, projections }: Props) {
+export function ComparisonChart({ scenarios, projections, baselineYear }: Props) {
   const width = 760;
   const height = 300;
   const pad = { top: 24, right: 24, bottom: 36, left: 62 };
@@ -12,12 +12,13 @@ export function ComparisonChart({ scenarios, projections }: Props) {
   const x = (year: number) => pad.left + (year / maxYears) * (width - pad.left - pad.right);
   const y = (value: number) => height - pad.bottom - (value / maxValue) * (height - pad.top - pad.bottom);
   const ticks = [0, 0.25, 0.5, 0.75, 1];
+  const toPath = (points: Array<{ year: number; nominal: number }>) => points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${x(point.year)} ${y(point.nominal)}`).join(' ');
 
   return (
     <div className="chart-shell">
       <div className="chart-legend">
         {scenarios.map((scenario) => <span key={scenario.id}><i style={{ background: scenario.color }} />{scenario.name}</span>)}
-        <span className="legend-note">名义终值 · 情景模拟</span>
+        <span className="legend-note">{baselineYear == null ? '名义终值 · 情景模拟' : `实线 · 基准年第 ${baselineYear} 年内 / 虚线 · 外推`}</span>
       </div>
       <svg className="chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="情景终值趋势比较图">
         {ticks.map((tick) => {
@@ -26,11 +27,23 @@ export function ComparisonChart({ scenarios, projections }: Props) {
         })}
         <text x={pad.left} y={height - 10} className="axis-label">第 0 年</text>
         <text x={width - pad.right} y={height - 10} textAnchor="end" className="axis-label">第 {maxYears} 年</text>
+        {baselineYear != null && baselineYear < maxYears && (
+          <g>
+            <line x1={x(baselineYear)} x2={x(baselineYear)} y1={pad.top} y2={height - pad.bottom} className="baseline-line" />
+            <text x={x(baselineYear)} y={pad.top - 8} textAnchor="middle" className="baseline-label">基准 · 第 {baselineYear} 年</text>
+          </g>
+        )}
         {projections.map((projection) => {
           const scenario = scenarios.find((item) => item.id === projection.scenarioId);
           if (!scenario) return null;
-          const path = projection.points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${x(point.year)} ${y(point.nominal)}`).join(' ');
-          return <path key={projection.scenarioId} d={path} className="chart-line" stroke={scenario.color} />;
+          const solidPoints = baselineYear == null ? projection.points : projection.points.filter((point) => point.year <= baselineYear);
+          const extraPoints = baselineYear == null ? [] : projection.points.filter((point) => point.year >= baselineYear);
+          return (
+            <g key={projection.scenarioId}>
+              <path d={toPath(solidPoints)} className="chart-line" stroke={scenario.color} />
+              {extraPoints.length > 1 && <path d={toPath(extraPoints)} className="chart-line extrapolated" stroke={scenario.color} />}
+            </g>
+          );
         })}
       </svg>
     </div>

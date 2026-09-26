@@ -1,6 +1,6 @@
-import { calculateProjection, COLORS, SAMPLE_SCENARIOS, validateScenario } from './domain';
+import { calculateProjection, COLORS, isBaselineSetting, SAMPLE_SCENARIOS, validateScenario } from './domain';
 import type { ScenarioRepository } from './repository';
-import type { FinanceScenario, PersistedWorkspace, ScenarioField, ScenarioProjection, ValidationErrors } from './types';
+import type { BaselineSetting, FinanceScenario, PersistedWorkspace, ScenarioField, ScenarioProjection, ValidationErrors } from './types';
 
 export type ViewStatus = 'loading' | 'ready' | 'editing' | 'error' | 'completed';
 
@@ -10,13 +10,14 @@ export interface MoneyScenarioState {
   selectedId: string;
   errors: Record<string, ValidationErrors>;
   projections: ScenarioProjection[];
+  baseline: BaselineSetting;
   message: string;
 }
 
 type Listener = (state: MoneyScenarioState) => void;
 
 function initialState(): MoneyScenarioState {
-  return { status: 'loading', scenarios: [], selectedId: '', errors: {}, projections: [], message: '正在恢复最近的情景…' };
+  return { status: 'loading', scenarios: [], selectedId: '', errors: {}, projections: [], baseline: { mode: 'auto' }, message: '正在恢复最近的情景…' };
 }
 
 export class MoneyScenarioViewModel {
@@ -41,11 +42,25 @@ export class MoneyScenarioViewModel {
     this.initialized = true;
     try {
       const saved = await this.repository.load();
+      // 旧数据没有 baseline 字段：保持“各按终值”的现状渲染，不改变已有结论。
+      const baseline: BaselineSetting = saved
+        ? (isBaselineSetting(saved.baseline) ? saved.baseline : { mode: 'off' })
+        : { mode: 'auto' };
+      this.setState({ baseline });
       this.applyScenarios(saved?.scenarios?.length ? saved.scenarios : SAMPLE_SCENARIOS, saved?.selectedId ?? SAMPLE_SCENARIOS[0].id, saved ? '已恢复上次工作状态' : '已载入示例情景，可直接调整参数');
     } catch {
       this.applyScenarios(SAMPLE_SCENARIOS, SAMPLE_SCENARIOS[0].id, '本地数据读取失败，已使用示例情景');
       this.setState({ status: 'error', message: '本地数据读取失败，当前使用临时示例；仍可继续推演' });
     }
+  }
+
+  setBaseline(setting: BaselineSetting): void {
+    const message = setting.mode === 'auto'
+      ? '基准年自动跟随最短情景的年限'
+      : setting.mode === 'manual'
+        ? `已统一按第 ${Math.max(1, Math.round(setting.year))} 年比较，超出部分标记为外推`
+        : '已恢复各情景按各自终值比较';
+    this.setState({ baseline: setting, message });
   }
 
   updateField(id: string, field: ScenarioField, value: number): void {
@@ -92,7 +107,7 @@ export class MoneyScenarioViewModel {
       this.setState({ status: 'error', message: '请先修正标红参数，再保存比较' });
       return;
     }
-    const workspace: PersistedWorkspace = { version: 1, scenarios: this.state.scenarios, selectedId: this.state.selectedId };
+    const workspace: PersistedWorkspace = { version: 1, scenarios: this.state.scenarios, selectedId: this.state.selectedId, baseline: this.state.baseline };
     try {
       await this.repository.save(workspace);
       this.setState({ status: 'completed', message: '比较已保存，本地刷新后仍可继续编辑' });

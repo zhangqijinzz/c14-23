@@ -1,4 +1,5 @@
 import type {
+  BaselineSetting,
   FinanceScenario,
   ProjectionPoint,
   ScenarioField,
@@ -45,6 +46,29 @@ export function calculateProjection(scenario: FinanceScenario): ScenarioProjecti
 
 export function formatMoney(value: number): string {
   return new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 0 }).format(Math.round(value));
+}
+
+export function isBaselineSetting(value: unknown): value is BaselineSetting {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as { mode?: unknown; year?: unknown };
+  if (candidate.mode === 'auto' || candidate.mode === 'off') return true;
+  return candidate.mode === 'manual' && typeof candidate.year === 'number' && Number.isFinite(candidate.year);
+}
+
+export function resolveBaselineYear(
+  setting: BaselineSetting,
+  scenarios: FinanceScenario[],
+  errors: Record<string, ValidationErrors>,
+): number | null {
+  if (setting.mode === 'off') return null;
+  const validYears = scenarios.filter((scenario) => !errors[scenario.id]).map((scenario) => scenario.years);
+  if (validYears.length === 0) return null;
+  if (setting.mode === 'auto') return Math.min(...validYears);
+  return Math.min(Math.max(Math.round(setting.year), 1), Math.max(...validYears));
+}
+
+export function pointAtYear(projection: ScenarioProjection, year: number): ProjectionPoint | undefined {
+  return projection.points.find((point) => point.year === year);
 }
 
 export function fieldLabel(field: ScenarioField): string {

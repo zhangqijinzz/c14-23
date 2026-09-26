@@ -35,8 +35,14 @@ export interface ScenarioProjection {
 
 export type ValidationErrors = Partial<Record<ScenarioField, string>>;
 
+export type BaselineSetting =
+  | { mode: 'auto' }
+  | { mode: 'manual'; year: number }
+  | { mode: 'off' };
+
 export interface PersistedWorkspace {
   version: 1;
   scenarios: FinanceScenario[];
   selectedId: string;
+  baseline?: BaselineSetting;
 }

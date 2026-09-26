@@ -36,4 +36,26 @@ describe('MoneyScenarioViewModel', () => {
     expect(vm.getSnapshot().status).toBe('error');
     expect(vm.getSnapshot().scenarios).toHaveLength(3);
   });
+
+  it('defaults new workspaces to auto baseline and persists the choice', async () => {
+    const repository = new MemoryRepository();
+    const vm = new MoneyScenarioViewModel(repository);
+    await vm.init();
+    expect(vm.getSnapshot().baseline).toEqual({ mode: 'auto' });
+    vm.setBaseline({ mode: 'manual', year: 10 });
+    await vm.save();
+    expect((await repository.load())?.baseline).toEqual({ mode: 'manual', year: 10 });
+  });
+
+  it('restores a saved baseline and keeps legacy workspaces on per-scenario finals', async () => {
+    const withBaseline: PersistedWorkspace = { version: 1, scenarios: SAMPLE_SCENARIOS, selectedId: 'steady', baseline: { mode: 'manual', year: 15 } };
+    const vm = new MoneyScenarioViewModel(new MemoryRepository(withBaseline));
+    await vm.init();
+    expect(vm.getSnapshot().baseline).toEqual({ mode: 'manual', year: 15 });
+
+    const legacy: PersistedWorkspace = { version: 1, scenarios: SAMPLE_SCENARIOS, selectedId: 'steady' };
+    const legacyVm = new MoneyScenarioViewModel(new MemoryRepository(legacy));
+    await legacyVm.init();
+    expect(legacyVm.getSnapshot().baseline).toEqual({ mode: 'off' });
+  });
 });
